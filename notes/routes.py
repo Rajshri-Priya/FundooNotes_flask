@@ -41,9 +41,11 @@ class NotesApi(Resource):
         if user_id is None:
             raise CustomAPIException('Missing user_id query parameter', 400)
 
-        # user_id = int(user_id)
+        is_archived = request.args.get('is_archived', type=bool, default=False)
+        is_trashed = request.args.get('is_trashed', type=bool, default=False)
+
         notes = [NotesSerializer.model_validate(note).model_dump() for note in
-                 Notes.query.filter_by(user_id=user_id).all()]
+                 Notes.query.filter_by(user_id=user_id, is_archive=is_archived, is_trash=is_trashed).all()]
         return {'message': 'Notes retrieved successfully', 'data': notes}, 200
 
     def put(self, *args, **kwargs):
@@ -53,6 +55,8 @@ class NotesApi(Resource):
 
         if note is None:
             raise CustomAPIException('Note not found', 404)
+        if note.is_trash is True:
+            raise CustomAPIException("Note is in Trash", 400)
 
         serializer = NotesSerializer(**data)
 
@@ -80,3 +84,82 @@ class NotesApi(Resource):
         app_logger.info(f"Note deleted: {note.title}")
 
         return {'message': 'Note deleted', 'status': 200, 'data': {}}
+
+
+@api.route('/archive')
+class ArchiveNoteApi(Resource):
+    """
+        API endpoint to mark a note as archived or unarchived.
+    """
+    method_decorators = [handle_exceptions, verify_user]
+
+    def put(self, *args, **kwargs):
+        data = request.get_json()
+        note_id = data.get('note_id')
+
+        if note_id is None:
+            raise CustomAPIException('Missing note_id query parameter', 400)
+
+        # Find the note by note_id
+        note = Notes.query.filter_by(id=note_id, user_id=data.get("user_id")).first()
+        if not note:
+            raise CustomAPIException('Note not found', 404)
+
+        if note.is_trash is True:
+            raise CustomAPIException('Already is in trash', 400)
+
+        # Toggle the is_archive field
+        note.is_archive = True if not note.is_archive else False
+        db.session.commit()
+
+        app_logger.info(f"Note archive status updated: {note.title} (is_archive: {note.is_archive})")
+        data = NotesSerializer.model_validate(note).model_dump()
+        return {'message': 'Note archive status updated successfully', 'data': data}, 200
+
+    def get(self, *args, **kwargs):
+        user_id = kwargs.get('user_id')
+        if user_id is None:
+            raise CustomAPIException('Missing user_id query parameter', 400)
+
+        is_archived = request.args.get('is_archived', type=bool, default=True)
+        notes = [NotesSerializer.model_validate(note).model_dump() for note in
+                 Notes.query.filter_by(user_id=user_id, is_archive=is_archived).all()]
+        return {'message': 'Notes retrieved successfully', 'data': notes}, 200
+
+
+@api.route('/trashed')
+class TrashNoteApi(Resource):
+    """
+        API endpoint to mark a note as trashed or untrashed.
+    """
+    method_decorators = [handle_exceptions, verify_user]
+
+    def put(self, *args, **kwargs):
+        data = request.get_json()
+        note_id = data.get('note_id')
+
+        if note_id is None:
+            raise CustomAPIException('Missing note_id query parameter', 400)
+
+        # Find the note by note_id
+        note = Notes.query.filter_by(id=note_id, user_id=data.get("user_id")).first()
+        if not note:
+            raise CustomAPIException('Note not found', 404)
+
+        # Toggle the is_trash field
+        note.is_trash = True if not note.is_trash else False
+        db.session.commit()
+
+        app_logger.info(f"Note archive status updated: {note.title} (is_trash: {note.is_trash})")
+        note = NotesSerializer.model_validate(note).model_dump()
+        return {'message': 'Note archive status updated successfully', 'data': note}, 200
+
+    def get(self, *args, **kwargs):
+        user_id = kwargs.get('user_id')
+        if user_id is None:
+            raise CustomAPIException('Missing user_id query parameter', 400)
+
+        is_trashed = request.args.get('is_trash', type=bool, default=True)
+        notes = [NotesSerializer.model_validate(note).model_dump() for note in
+                 Notes.query.filter_by(user_id=user_id, is_trash=is_trashed).all()]
+        return {'message': 'Notes retrieved successfully', 'data': notes}, 200
