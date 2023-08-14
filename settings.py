@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     DB_URI: str
     TEST_URI: str
     MAIL_USERNAME: EmailStr
+    BASE_URL: str
+    USER_PORT: int
+    NOTE_PORT: int
 
 
 settings = Settings()

@@ -110,7 +110,7 @@ class LoginApi(Resource):
             app_logger.info('Login successful for user: %s', user.username)
 
             # Generate a token for login
-            token = encode_jwt({'user_id': user.id})
+            token = encode_jwt(user.id)
             return {'message': 'Login successful', 'status': 200, 'token': token}, 200
         else:
             app_logger.warning('Login failed for username: %s', data['username'])
@@ -156,3 +156,16 @@ class VerifyAPI(Resource):
         # Log the successful verification
         app_logger.info(f'User verified: {user.username}, Email: {user.email}')
         return {'message': 'Account verification successful', 'status': 200, 'data': True}, 200
+
+
+@handle_exceptions
+@app.get("/authenticate")
+def authenticate_user():
+    token = request.headers.get("token")
+    if not token:
+        raise Exception("token not found")
+    payload = decode_jwt(token)
+    if not payload:
+        return {"message":"invalid token"},401
+    user = User.query.filter_by(id=payload.get("user_id")).first()
+    return user.to_dict() if user else {}
