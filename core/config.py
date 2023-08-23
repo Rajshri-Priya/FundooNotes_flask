@@ -14,7 +14,6 @@ class DevelopmentConfig(Config):
 class Testing(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = settings.TEST_URI
-    # SQLALCHEMY_DATABASE_URI = 'postgresql+psycopg2://postgres:123@localhost:5432/practice_flask'
 
 
 class EmailConfig:
