@@ -58,8 +58,19 @@ class RegistrationAPI(Resource):
             Returns:
             JSON response with user data.
         """
-        users = [i.to_dict() for i in User.query.all()]
-        return {'message': 'User Retrieved', 'status': 200, 'data': users}, 200
+        user_id = request.args.get('user_id')
+
+        if user_id:
+            # Retrieve user information by user ID
+            user = User.query.get(user_id)
+            if user:
+                return {'message': 'User Retrieved', 'status': 200, 'data': user.to_dict()}, 200
+            else:
+                return {'message': 'User not found', 'status': 404, 'data': None}, 404
+        else:
+            # Retrieve a list of all users
+            users = [user.to_dict() for user in User.query.all()]
+            return {'message': 'Users Retrieved', 'status': 200, 'data': users}, 200
 
     @handle_exceptions
     def delete(self):

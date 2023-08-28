@@ -4,7 +4,7 @@ from core import db
 
 
 class Notes(db.Model):
-    id = db.Column(db.Integer, primary_key=True,  index=True)
+    id = db.Column(db.Integer, primary_key=True, index=True)
     user_id = db.Column(db.BigInteger, nullable=False)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.String(1500), nullable=False)
@@ -13,7 +13,7 @@ class Notes(db.Model):
     is_archive = db.Column(db.Boolean, default=False)
     is_trash = db.Column(db.Boolean, default=False)
     color = db.Column(db.String(10))
-    reminder = db.Column(db.DateTime,nullable=True)
+    reminder = db.Column(db.DateTime, nullable=True)
     image = db.Column(db.String(255))
 
     def to_dict(self):
@@ -22,3 +22,9 @@ class Notes(db.Model):
     def __str__(self):
         return f'{self.title}'
 
+
+class Collaborator(db.Model):
+    id = db.Column(db.BigInteger, primary_key=True, index=True)
+    user_id = db.Column(db.BigInteger, nullable=False)
+    note_id = db.Column(db.BigInteger, nullable=False)
+    access_type = db.Column(db.String(10), default='read-only')

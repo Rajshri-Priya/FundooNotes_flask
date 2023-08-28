@@ -5,7 +5,8 @@ from core.logger import app_logger
 from core.utils import handle_exceptions, CustomAPIException, verify_user
 from notes.serializers import NotesSerializer
 from settings import settings
-from notes.models import Notes
+from notes.models import Notes, Collaborator
+from notes.utils import fetch_user
 from flask_restx import Resource, Api
 
 app = create_app("development")
@@ -46,6 +47,11 @@ class NotesApi(Resource):
 
         notes = [NotesSerializer.model_validate(note).model_dump() for note in
                  Notes.query.filter_by(user_id=user_id, is_archive=is_archived, is_trash=is_trashed).all()]
+
+        collab_notes = list(
+            map(lambda x: NotesSerializer.model_validate(Notes.query.get(x.note_id)).model_dump(), Collaborator.query.filter_by(user_id=user_id).all()))
+        notes.extend(collab_notes)
+
         return {'message': 'Notes retrieved successfully', 'data': notes}, 200
 
     def put(self, *args, **kwargs):
@@ -54,14 +60,20 @@ class NotesApi(Resource):
         note = Notes.query.filter_by(id=data.get("note_id"), user_id=data.get("user_id")).first()
 
         if note is None:
-            raise CustomAPIException('Note not found', 404)
+            collaborator = Collaborator.query.filter_by(note_id=data.get("note_id"),
+                                                        user_id=data.get("user_id"), access_type="read-write").first()
+            if collaborator:
+                note = Notes.query.filter_by(id=data.get("note_id")).first()
+        if not note:
+            raise CustomAPIException("Access denied or Note not found!", status_code=400)
+
         if note.is_trash is True:
             raise CustomAPIException("Note is in Trash", 400)
 
         serializer = NotesSerializer(**data)
 
         for field, value in serializer.model_dump().items():
-            if hasattr(note, field):
+            if hasattr(note, field) and field != "user_id":
                 setattr(note, field, value)
 
         db.session.commit()
@@ -163,3 +175,97 @@ class TrashNoteApi(Resource):
         notes = [NotesSerializer.model_validate(note).model_dump() for note in
                  Notes.query.filter_by(user_id=user_id, is_trash=is_trashed).all()]
         return {'message': 'Notes retrieved successfully', 'data': notes}, 200
+
+
+@api.route('/notes/collaborator')
+class CollaboratorApi(Resource):
+    method_decorators = [handle_exceptions, verify_user]
+    """
+    API endpoint to add collaborators to a note.
+    """
+
+    def post(self):
+        data = request.get_json()
+        note_id = data.get('note_id')
+        user_id = data.get('user_id')
+
+        if note_id is None or user_id is None:
+            raise CustomAPIException('Missing note_id or user_id in request data', 400)
+
+        note = Notes.query.filter_by(id=note_id, user_id=user_id).first()
+
+        if not note:
+            raise CustomAPIException('Note not found', 404)
+
+        collaborators = data.get('collaborators', [])  # note_id and user_id
+        access_type = data.get('access_type', 'read-only')
+
+        if user_id in collaborators:
+            raise CustomAPIException('Trying to collaborate with yourself', 400)
+
+        collab_obj = []
+        for user in collaborators:
+            user_data = fetch_user(user)
+            if not user_data:
+                raise CustomAPIException(f'User {user} not found', 404)
+
+            if Collaborator.query.filter_by(note_id=note_id, user_id=user_data['id']).first():
+                raise CustomAPIException(f'Note {note_id} already shared with user {user}', 400)
+
+            collab_obj.append(Collaborator(note_id=note_id, user_id=user_data['id'], access_type=access_type))
+
+        db.session.add_all(collab_obj)
+        db.session.commit()
+
+        return {'message': 'Collaborators added successfully', 'status': 200}
+
+    def get(self, *args, **kwargs):
+        note_id = request.args.get('note_id')
+        user_id = kwargs.get('user_id')
+        if note_id is None:
+            raise CustomAPIException('Missing note_id query parameter', 400)
+
+        note = Notes.query.filter_by(id=note_id).first()
+
+        if not note:
+            raise CustomAPIException('Note not found', 404)
+
+        if note.user_id != user_id:
+            raise CustomAPIException('You are not the owner of this note', 403)  # 403 Forbidden
+
+        collaborators = Collaborator.query.filter_by(note_id=note_id)
+
+        collaborator_list = []
+        for collaborator in collaborators:
+            user_data = fetch_user(collaborator.user_id)
+            if user_data:
+                collaborator_info = {
+                    'user_id': collaborator.user_id,
+                    'access_type': collaborator.access_type,
+                    'user_info': user_data
+                }
+                collaborator_list.append(collaborator_info)
+
+        return {'message': 'Collaborators retrieved successfully', 'status': 200, 'data': collaborator_list}
+
+    def delete(self, *args, **kwargs):
+        note = Notes.query.filter_by(id=request.json.get('note_id'), user_id=kwargs.get('user_id')).first()
+        if not note:
+            raise Exception('Note not found')
+
+        collab_obj = []
+
+        for user in request.json.get('collaborators'):
+            user_data = fetch_user(user)
+            if not user_data:
+                raise Exception(f'User {user} not found')
+
+            collaborated_user = Collaborator.query.filter_by(note_id=note.id, user_id=user_data['id']).first()
+            if not collaborated_user:
+                raise Exception(f'Note {note.id} is not collaborated with user {user}')
+
+            collab_obj.append(collaborated_user)
+
+        [db.session.delete(x) for x in collab_obj]
+        db.session.commit()
+        return {'message': 'Collaborator deleted', 'status': 200, 'data': {}}
