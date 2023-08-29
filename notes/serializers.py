@@ -6,6 +6,7 @@ from pydantic.functional_validators import AfterValidator
 
 class NotesSerializer(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    id: Optional[int]= None
     user_id: int
     title: str
     description: str
@@ -14,4 +15,3 @@ class NotesSerializer(BaseModel):
     color: Optional[str] = None
     reminder: Optional[Annotated[datetime, AfterValidator(str)]] = None
     image: Optional[str] = None
-

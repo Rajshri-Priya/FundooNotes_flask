@@ -3,6 +3,7 @@ from flask import request
 
 from core.logger import app_logger
 from core.utils import handle_exceptions, CustomAPIException, verify_user
+from notes.redis_utils import RedisCrud
 from notes.serializers import NotesSerializer
 from settings import settings
 from notes.models import Notes, Collaborator
@@ -31,6 +32,8 @@ class NotesApi(Resource):
         db.session.commit()
 
         data = NotesSerializer.model_validate(new_note).model_dump()
+        # save notes in redis or cache
+        RedisCrud.save_note_in_redis(data, user_id)
 
         # Log the creation of the note
         app_logger.info(f"Note created: {new_note.title} by User ID: {user_id}")
@@ -49,10 +52,14 @@ class NotesApi(Resource):
                  Notes.query.filter_by(user_id=user_id, is_archive=is_archived, is_trash=is_trashed).all()]
 
         collab_notes = list(
-            map(lambda x: NotesSerializer.model_validate(Notes.query.get(x.note_id)).model_dump(), Collaborator.query.filter_by(user_id=user_id).all()))
+            map(lambda x: NotesSerializer.model_validate(Notes.query.get(x.note_id)).model_dump(),
+                Collaborator.query.filter_by(user_id=user_id).all()))
         notes.extend(collab_notes)
 
-        return {'message': 'Notes retrieved successfully', 'data': notes}, 200
+        # retrieve note data in by user
+        redis_data = RedisCrud.get_notes_by_user_id(user_id)
+        if redis_data:
+            return {'message': 'Notes retrieved successfully', 'data': redis_data}, 200
 
     def put(self, *args, **kwargs):
 
@@ -83,15 +90,19 @@ class NotesApi(Resource):
 
     def delete(self, *args, **kwargs):
         note_id = request.args.get('note_id')  # get note_id in query_params
+        user_id = kwargs.get("user_id")
         if note_id is None:
             raise CustomAPIException('Missing note_id query parameter', 400)
 
-        note = Notes.query.filter_by(id=note_id, user_id=kwargs.get("user_id")).first()
+        note = Notes.query.filter_by(id=note_id, user_id=user_id).first()
         if not note:
             raise CustomAPIException('Note not found', 404)
 
+        RedisCrud.delete_note_in_redis(int(note_id),user_id)
+
         db.session.delete(note)
         db.session.commit()
+
 
         app_logger.info(f"Note deleted: {note.title}")
 
