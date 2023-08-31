@@ -17,11 +17,11 @@ class Testing(Config):
 
 
 class EmailConfig:
-    MAIL_SERVER = 'smtp.gmail.com'
-    MAIL_PORT = 465
+    MAIL_SERVER = settings.MAIL_SERVER
+    MAIL_PORT = settings.MAIL_PORT
     MAIL_USE_TLS = False
-    MAIL_USERNAME = 'priyagorkha711@gmail.com'
-    MAIL_PASSWORD = 'qlktjwwmrajmxuvp'
+    MAIL_USERNAME = settings.MAIL_USERNAME
+    MAIL_PASSWORD = settings.MAIL_PASSWORD
     MAIL_USE_SSL = True
 
 

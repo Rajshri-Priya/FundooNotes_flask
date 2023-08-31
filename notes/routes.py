@@ -1,12 +1,16 @@
+from datetime import datetime
+
+from tasks import celery, create_crontab_schedule
 from core import create_app, db
 from flask import request
+from redbeat import RedBeatSchedulerEntry
 
 from core.logger import app_logger
 from core.utils import handle_exceptions, CustomAPIException, verify_user
 from notes.redis_utils import RedisCrud
 from notes.serializers import NotesSerializer
 from settings import settings
-from notes.models import Notes, Collaborator, NoteLabel
+from notes.models import Notes, Collaborator
 from notes.utils import fetch_user
 from flask_restx import Resource, Api
 from notes.swagger_schema import get_model
@@ -37,6 +41,37 @@ class NotesApi(Resource):
         db.session.commit()
 
         data = NotesSerializer.model_validate(new_note).model_dump()
+
+        # fetch login user details
+        user_data = fetch_user(user_id)
+        if not user_data:
+            raise CustomAPIException(f'User {user_id} not found', 404)
+
+        # Check if a reminder is included in the request
+        reminder_datetime = new_note.reminder
+        if reminder_datetime:
+            # Generate a unique task name based on the note's ID and a timestamp
+            task_name = f'send_reminder_task_{new_note.id}_{str(reminder_datetime.date())}'
+
+            # Create a payload containing the recipient's email and message
+            payload = {
+                'recipient_email': user_data.get("email"),
+                'message': data.get('title'),
+            }
+            schedule = create_crontab_schedule(reminder_datetime.minute, reminder_datetime.hour,
+                                               reminder_datetime.day, reminder_datetime.month,
+                                               )
+            # Create a scheduled task to send the reminder using RedBeatSchedulerEntry
+            entry = RedBeatSchedulerEntry(
+                name=task_name,
+                task="tasks.send_mail",
+                args=[payload],  # Pass any required data to the reminder task
+                app=celery,
+                schedule=schedule
+
+            )
+            entry.save()
+
         # save notes in redis or cache
         RedisCrud.save_note_in_redis(data, user_id)
 
@@ -316,3 +351,4 @@ class statisticNotes(Resource):
             "collaborated_notes": collaborated_notes
         }
         return {'message': 'statisticNotes retrieved successfully', 'data': stats}, 200
+
