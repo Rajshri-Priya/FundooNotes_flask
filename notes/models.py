@@ -30,3 +30,7 @@ class Collaborator(db.Model):
     access_type = db.Column(db.String(10), default='read-only')
 
 
+class NoteLabel(db.Model):
+    id = db.Column(db.BigInteger, primary_key=True, index=True)
+    note_id = db.Column(db.BigInteger, nullable=False)
+    label_id = db.Column(db.BigInteger, nullable=False)

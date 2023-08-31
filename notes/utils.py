@@ -23,3 +23,13 @@ def fetch_user(user_id: int):
         return None
 
 
+def fetch_label(label_id: list):
+    url = f'{settings.BASE_URL}:{settings.LABEL_PORT}/retrieve/'
+    payload = {'label_id': label_id}
+    headers = {'Content-Type': 'application/json'}
+
+    response = requests.post(url, json=payload, headers=headers)
+
+    response.raise_for_status()
+
+    return response.json().get('data')

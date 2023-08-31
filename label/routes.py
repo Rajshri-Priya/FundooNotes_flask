@@ -11,7 +11,7 @@ from label.swagger_schema import get_model
 app = create_app("development")
 api = Api(app, doc="/docs",
           authorizations={"Bearer": {"type": "apiKey", "in": "header", "name": "token"}},
-          security="Bearer",default="Labels",default_label="api")  # end point of swagger
+          security="Bearer", default="Labels", default_label="api")  # end point of swagger
 
 swager_model = lambda x: api.model(x, get_model(x))
 
@@ -74,3 +74,20 @@ class LabelApi(Resource):
         app_logger.info(f"Label deleted: {label.name}")
 
         return {'message': 'Label deleted', 'status': 200, 'Label': {}}
+
+
+@handle_exceptions
+@app.post('/retrieve/')
+def retrieve_label():
+    """
+    fxn make for fetch labels that used in add labels to note api
+    :return: label obj
+    """
+    objs = []
+    for label_id in request.json.get('label_id'):
+        print(label_id)
+        obj = Labels.query.filter_by(id=label_id).first()
+        if not obj:
+            return {'message': f'Label {label_id} not found', 'status': 400, 'data': {}}, 400
+        objs.append(obj.to_dict())
+    return {'message': 'Label fetched successfully', 'status': 200, 'data': objs}

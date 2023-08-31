@@ -16,7 +16,6 @@ class RedisCrud:
     def get_notes_by_user_id(cls, user_id: int):
         user_id = f"user_{user_id}"
         notes_dict = cls.client.hgetall(user_id)
-        print(notes_dict)
         if notes_dict:
             notes_dict = [json.loads(x) for x in notes_dict.values()]
         return notes_dict

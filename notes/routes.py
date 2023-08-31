@@ -10,8 +10,8 @@ from core.utils import handle_exceptions, CustomAPIException, verify_user
 from notes.redis_utils import RedisCrud
 from notes.serializers import NotesSerializer
 from settings import settings
-from notes.models import Notes, Collaborator
-from notes.utils import fetch_user
+from notes.models import Notes, Collaborator, NoteLabel
+from notes.utils import fetch_user, fetch_label
 from flask_restx import Resource, Api
 from notes.swagger_schema import get_model
 
@@ -351,4 +351,86 @@ class statisticNotes(Resource):
             "collaborated_notes": collaborated_notes
         }
         return {'message': 'statisticNotes retrieved successfully', 'data': stats}, 200
+
+
+@api.route('/notes/labels')
+class AddLabelToNotes(Resource):
+    method_decorators = [handle_exceptions, verify_user]
+
+    def post(self, *args, **kwargs):
+        note_id = request.json.get('note_id')
+        user_id = request.json.get('user_id')
+        label_ids = request.json.get('labels')
+
+        # Check if the note exists
+        note = Notes.query.filter_by(id=note_id, user_id=user_id).first()
+        if not note:
+            raise Exception('Note not found')
+
+        # Fetch the labels associated with the note
+        existing_labels = NoteLabel.query.filter_by(note_id=note_id).all()
+
+        # Check if any of the label_ids are already associated with the note
+        for label_id in label_ids:
+            if any(label.note_id == note_id and label.label_id == label_id for label in existing_labels):
+                raise Exception(f'Label with ID {label_id} is already applied to the note.')
+
+        # If the labels are not already associated, add them
+        label_data = fetch_label(label_ids)
+        objs = [NoteLabel(note_id=note.id, label_id=i.get('id')) for i in label_data]
+        db.session.add_all(objs)
+        db.session.commit()
+
+        return {'message': 'Label added to note', 'status': 200, 'data': {}}
+
+    def get(self, *args, **kwargs):
+        note_id = request.args.get("note_id")
+        user_id = kwargs.get('user_id')
+
+        if note_id is None:
+            raise CustomAPIException('Missing note_id query parameter', 400)
+
+        note = Notes.query.filter_by(id=note_id).first()
+
+        if not note:
+            raise CustomAPIException('Note not found', 404)
+
+        if note.user_id != user_id:
+            raise CustomAPIException('You are not the owner of this note', 403)  # 403 Forbidden
+
+        labels = NoteLabel.query.filter_by(note_id=note_id)
+
+        label_list = []
+        for label in labels:
+            label_info = {
+                'label_id': label.label_id,
+                # You can fetch label details here if needed
+            }
+            label_list.append(label_info)
+
+        return {'message': 'Labels retrieved successfully', 'status': 200, 'data': label_list}
+
+    # @api.doc(body=swagger_model("del_label"))
+    def delete(self, *args, **kwargs):
+        note_id = request.json.get('note_id')
+        label_ids = request.json.get('labels')
+        user_id = kwargs.get('user_id')
+
+        note = Notes.query.filter_by(id=note_id, user_id=user_id).first()
+        if not note:
+            raise Exception('Note not found')
+
+        label_objs = []
+
+        for label_id in label_ids:
+            label = NoteLabel.query.filter_by(label_id=label_id, note_id=note_id).first()
+            if not label:
+                raise Exception(f'Label with ID {label_id} not found for Note {note.id}')
+            label_objs.append(label)
+
+        if label_objs:
+            [db.session.delete(x) for x in label_objs]
+            db.session.commit()
+
+        return {'message': 'Labels deleted', 'status': 200, 'data': {}}
 
