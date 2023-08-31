@@ -1,3 +1,5 @@
+import json
+
 import requests
 from settings import settings
 
@@ -19,3 +21,12 @@ def fetch_user(user_id: int):
     except requests.exceptions.RequestException as e:
         print(f"Error making the request: {str(e)}")
         return None
+
+
+# def fetch_label(label_id: list):
+#     res = requests.post(f'{settings.BASE_URL}:{settings.LABEL_PORT}/retrieve/',
+#                         json={'label_id': label_id}, headers={'content_type': 'application/json'})
+#     if res.status_code >= 400:
+#         data = json.loads(res.content)
+#         raise Exception(data.get('message'))
+#     return res.json().get('data')

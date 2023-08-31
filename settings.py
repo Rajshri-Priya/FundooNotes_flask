@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     BASE_URL: str
     USER_PORT: int
     NOTE_PORT: int
+    LABEL_PORT:int
 
 
 settings = Settings()

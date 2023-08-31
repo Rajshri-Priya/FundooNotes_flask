@@ -5,11 +5,16 @@ from core import create_app, db
 from user.models import User
 from core.logger import app_logger
 from core.utils import handle_exceptions, CustomAPIException
+from user.swagger_schema import get_model
 from user.utils import encode_jwt, send_mail, decode_jwt
 from user import serializers
 
 app = create_app("development")
-api = Api(app)  # swagger docs,rest api
+api = Api(app, doc="/docs",
+          authorizations={"Bearer": {"type": "apiKey", "in": "header", "name": "token"}},
+          security="Bearer", default="user", default_label="api")  # end point of swagger docs,rest api
+
+swager_model = lambda x: api.model(x, get_model(x))
 
 
 @api.route("/registration")
@@ -22,8 +27,9 @@ class RegistrationAPI(Resource):
         - GET /registration: Retrieve a list of all users.
         - DELETE /registration: Delete a user.
     """
+    method_decorators = (handle_exceptions,)  # Apply the custom exception handler decorato
 
-    @handle_exceptions  # Apply the custom exception handler decorator
+    @api.doc(body=swager_model('register_schema'))
     def post(self):
         """
         Handle user registration.
@@ -51,7 +57,7 @@ class RegistrationAPI(Resource):
         return {'message': 'Registration successful. Check your email for verification link.', 'status': 201,
                 'data': user.to_dict()}, 201
 
-    @handle_exceptions
+    @api.marshal_with(fields=swager_model('response'))
     def get(self):
         """
             Retrieve a list of all users.
@@ -72,7 +78,7 @@ class RegistrationAPI(Resource):
             users = [user.to_dict() for user in User.query.all()]
             return {'message': 'Users Retrieved', 'status': 200, 'data': users}, 200
 
-    @handle_exceptions
+    @api.doc(body=swager_model('login_schema'))
     def delete(self):
         """
         Delete a user.
@@ -100,8 +106,9 @@ class LoginApi(Resource):
     Endpoints:
     - POST /login: Authenticate user credentials and perform login.
     """
+    method_decorators = (handle_exceptions,)  # Apply the custom exception handler decorato
 
-    @handle_exceptions  # Apply the custom exception handler decorator
+    @api.doc(body=swager_model('login_schema'))
     def post(self):
         """
         Handle user login.
@@ -130,7 +137,9 @@ class LoginApi(Resource):
 
 @api.route('/verified')
 class VerifyAPI(Resource):
-    @handle_exceptions  # Apply the custom exception handler decorator
+    method_decorators = (handle_exceptions,)  # Apply the custom exception handler decorator
+
+    @api.doc(params={'token': {'required': True, 'description': 'Pass jwt token verify registered user'}})
     def get(self):
         """
         Verify user registration using the provided token.
@@ -177,6 +186,6 @@ def authenticate_user():
         raise Exception("token not found")
     payload = decode_jwt(token)
     if not payload:
-        return {"message":"invalid token"},401
+        return {"message": "invalid token"}, 401
     user = User.query.filter_by(id=payload.get("user_id")).first()
     return user.to_dict() if user else {}

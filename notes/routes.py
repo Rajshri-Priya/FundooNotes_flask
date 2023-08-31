@@ -6,18 +6,23 @@ from core.utils import handle_exceptions, CustomAPIException, verify_user
 from notes.redis_utils import RedisCrud
 from notes.serializers import NotesSerializer
 from settings import settings
-from notes.models import Notes, Collaborator
+from notes.models import Notes, Collaborator, NoteLabel
 from notes.utils import fetch_user
 from flask_restx import Resource, Api
+from notes.swagger_schema import get_model
 
 app = create_app("development")
-api = Api(app)
+api = Api(app, doc="/docs",
+          authorizations={"Bearer": {"type": "apiKey", "in": "header", "name": "token"}},
+          security="Bearer", default="Notes", default_label="api")  # end point of swagger
+swager_model = lambda x: api.model(x, get_model(x))
 
 
 @api.route('/notes')
 class NotesApi(Resource):
     method_decorators = [handle_exceptions, verify_user]
 
+    @api.doc(body=swager_model("Notes_create"))
     def post(self, *args, **kwargs):
         data = request.get_json()
         user_id = data.get('user_id')
@@ -40,10 +45,16 @@ class NotesApi(Resource):
 
         return {'message': 'Note created successfully', 'data': data}, 201
 
+    @api.marshal_with(fields=swager_model("response"))
     def get(self, *args, **kwargs):
         user_id = kwargs.get('user_id')
         if user_id is None:
             raise CustomAPIException('Missing user_id query parameter', 400)
+
+        # retrieve note data in by user
+        redis_data = RedisCrud.get_notes_by_user_id(user_id)
+        if redis_data:
+            return {'message': 'Notes retrieved successfully', 'status': 200, 'data': redis_data}, 200
 
         is_archived = request.args.get('is_archived', type=bool, default=False)
         is_trashed = request.args.get('is_trashed', type=bool, default=False)
@@ -56,11 +67,9 @@ class NotesApi(Resource):
                 Collaborator.query.filter_by(user_id=user_id).all()))
         notes.extend(collab_notes)
 
-        # retrieve note data in by user
-        redis_data = RedisCrud.get_notes_by_user_id(user_id)
-        if redis_data:
-            return {'message': 'Notes retrieved successfully', 'data': redis_data}, 200
+        return {'message': 'Notes retrieved successfully', 'status': 200, 'data': notes}, 200
 
+    @api.doc(body=swager_model("notes_put"))
     def put(self, *args, **kwargs):
 
         data = request.get_json()
@@ -88,6 +97,7 @@ class NotesApi(Resource):
         data = NotesSerializer.model_validate(note).model_dump()
         return {'message': 'Note updated successfully', 'data': data}, 200
 
+    @api.doc(params={'note_id': "please enter note_id for deletion"})
     def delete(self, *args, **kwargs):
         note_id = request.args.get('note_id')  # get note_id in query_params
         user_id = kwargs.get("user_id")
@@ -98,11 +108,10 @@ class NotesApi(Resource):
         if not note:
             raise CustomAPIException('Note not found', 404)
 
-        RedisCrud.delete_note_in_redis(int(note_id),user_id)
+        RedisCrud.delete_note_in_redis(int(note_id), user_id)
 
         db.session.delete(note)
         db.session.commit()
-
 
         app_logger.info(f"Note deleted: {note.title}")
 
@@ -116,6 +125,7 @@ class ArchiveNoteApi(Resource):
     """
     method_decorators = [handle_exceptions, verify_user]
 
+    @api.doc(body=swager_model("is_archive"))
     def put(self, *args, **kwargs):
         data = request.get_json()
         note_id = data.get('note_id')
@@ -139,6 +149,7 @@ class ArchiveNoteApi(Resource):
         data = NotesSerializer.model_validate(note).model_dump()
         return {'message': 'Note archive status updated successfully', 'data': data}, 200
 
+    @api.marshal_with(fields=swager_model("response"))
     def get(self, *args, **kwargs):
         user_id = kwargs.get('user_id')
         if user_id is None:
@@ -157,6 +168,7 @@ class TrashNoteApi(Resource):
     """
     method_decorators = [handle_exceptions, verify_user]
 
+    @api.doc(body=swager_model("is_trash"))
     def put(self, *args, **kwargs):
         data = request.get_json()
         note_id = data.get('note_id')
@@ -175,8 +187,9 @@ class TrashNoteApi(Resource):
 
         app_logger.info(f"Note archive status updated: {note.title} (is_trash: {note.is_trash})")
         note = NotesSerializer.model_validate(note).model_dump()
-        return {'message': 'Note archive status updated successfully', 'data': note}, 200
+        return {'message': 'Note Trash status updated successfully', 'data': note}, 200
 
+    @api.marshal_with(fields=swager_model("response"))
     def get(self, *args, **kwargs):
         user_id = kwargs.get('user_id')
         if user_id is None:
@@ -185,7 +198,7 @@ class TrashNoteApi(Resource):
         is_trashed = request.args.get('is_trash', type=bool, default=True)
         notes = [NotesSerializer.model_validate(note).model_dump() for note in
                  Notes.query.filter_by(user_id=user_id, is_trash=is_trashed).all()]
-        return {'message': 'Notes retrieved successfully', 'data': notes}, 200
+        return {'message': 'Notes retrieved successfully', 'status': 200, 'data': notes}, 200
 
 
 @api.route('/notes/collaborator')
@@ -195,6 +208,7 @@ class CollaboratorApi(Resource):
     API endpoint to add collaborators to a note.
     """
 
+    @api.doc(body=swager_model("add_collaborator"))
     def post(self):
         data = request.get_json()
         note_id = data.get('note_id')
@@ -230,8 +244,9 @@ class CollaboratorApi(Resource):
 
         return {'message': 'Collaborators added successfully', 'status': 200}
 
+    @api.doc(params={'note_id': "please enter note_id for get collaborator"})
     def get(self, *args, **kwargs):
-        note_id = request.args.get('note_id')
+        note_id = request.args.get("note_id")
         user_id = kwargs.get('user_id')
         if note_id is None:
             raise CustomAPIException('Missing note_id query parameter', 400)
@@ -259,6 +274,7 @@ class CollaboratorApi(Resource):
 
         return {'message': 'Collaborators retrieved successfully', 'status': 200, 'data': collaborator_list}
 
+    @api.doc(body=swager_model("del_collaborator"))
     def delete(self, *args, **kwargs):
         note = Notes.query.filter_by(id=request.json.get('note_id'), user_id=kwargs.get('user_id')).first()
         if not note:
@@ -280,3 +296,23 @@ class CollaboratorApi(Resource):
         [db.session.delete(x) for x in collab_obj]
         db.session.commit()
         return {'message': 'Collaborator deleted', 'status': 200, 'data': {}}
+
+
+@api.route("/notes/statistics")
+class statisticNotes(Resource):
+    method_decorators = [handle_exceptions, verify_user]
+
+    def get(self, *args, **kwargs):
+        total_notes = Notes.query.filter_by(user_id=kwargs.get('user_id')).count()
+        trashed_notes = Notes.query.filter_by(user_id=kwargs.get('user_id'), is_trash=True).count()
+        archived_notes = Notes.query.filter_by(user_id=kwargs.get('user_id'), is_archive=True).count()
+        colored_notes = Notes.query.filter(Notes.color.isnot(None), Notes.user_id == kwargs.get('user_id')).count()
+        collaborated_notes = len(Collaborator.query.filter_by(user_id=kwargs.get('user_id')).all())
+        stats = {
+            "total_notes": total_notes,
+            "trashed_notes": trashed_notes,
+            "archived_notes": archived_notes,
+            "colored_notes": colored_notes,
+            "collaborated_notes": collaborated_notes
+        }
+        return {'message': 'statisticNotes retrieved successfully', 'data': stats}, 200

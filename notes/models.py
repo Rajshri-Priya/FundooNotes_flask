@@ -28,3 +28,5 @@ class Collaborator(db.Model):
     user_id = db.Column(db.BigInteger, nullable=False)
     note_id = db.Column(db.BigInteger, nullable=False)
     access_type = db.Column(db.String(10), default='read-only')
+
+
